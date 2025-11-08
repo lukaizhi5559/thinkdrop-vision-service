@@ -39,12 +39,15 @@ class OCREngine:
                 use_angle_cls = os.getenv('OCR_USE_ANGLE_CLS', 'true').lower() == 'true'
                 
                 logger.info(f"Loading PaddleOCR (lang={lang}, angle_cls={use_angle_cls})...")
-                self._ocr = PaddleOCR(
-                    use_angle_cls=use_angle_cls,
-                    lang=lang,
-                    show_log=False
-                )
-                logger.info("✅ PaddleOCR loaded successfully")
+                try:
+                    self._ocr = PaddleOCR(
+                        use_textline_orientation=use_angle_cls,  # Updated parameter name
+                        lang=lang
+                    )
+                    logger.info(f"PaddleOCR initialized (lang={lang})")
+                except Exception as e:
+                    logger.error(f"Failed to initialize PaddleOCR: {e}")
+                    raise
                 
             except Exception as e:
                 logger.error(f"Failed to load PaddleOCR: {e}")
@@ -79,32 +82,47 @@ class OCREngine:
             img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
             
             # Run OCR
-            result = self._ocr.ocr(img_bgr, cls=True)
+            result = self._ocr.ocr(img_bgr)
             
             # Parse results
             items = []
             if result and result[0]:
                 for line in result[0]:
-                    # line[0] = [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
-                    # line[1] = (text, confidence)
-                    bbox_points = line[0]
-                    text, confidence = line[1]
-                    
-                    # Convert to simple bbox [x1, y1, x2, y2]
-                    x_coords = [p[0] for p in bbox_points]
-                    y_coords = [p[1] for p in bbox_points]
-                    bbox = [
-                        min(x_coords),
-                        min(y_coords),
-                        max(x_coords),
-                        max(y_coords)
-                    ]
-                    
-                    items.append({
-                        "text": text,
-                        "bbox": bbox,
-                        "confidence": float(confidence)
-                    })
+                    try:
+                        # Handle different result formats
+                        if isinstance(line, (list, tuple)) and len(line) >= 2:
+                            # line[0] = [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+                            # line[1] = (text, confidence) or just text
+                            bbox_points = line[0]
+                            
+                            # Handle text/confidence tuple or dict
+                            if isinstance(line[1], (list, tuple)) and len(line[1]) >= 2:
+                                text, confidence = line[1][0], line[1][1]
+                            elif isinstance(line[1], dict):
+                                text = line[1].get('text', '')
+                                confidence = line[1].get('confidence', 0.0)
+                            else:
+                                text = str(line[1])
+                                confidence = 1.0
+                            
+                            # Convert to simple bbox [x1, y1, x2, y2]
+                            x_coords = [p[0] for p in bbox_points]
+                            y_coords = [p[1] for p in bbox_points]
+                            bbox = [
+                                min(x_coords),
+                                min(y_coords),
+                                max(x_coords),
+                                max(y_coords)
+                            ]
+                            
+                            items.append({
+                                "text": text,
+                                "bbox": bbox,
+                                "confidence": float(confidence)
+                            })
+                    except Exception as e:
+                        logger.warning(f"Failed to parse OCR line: {e}, line={line}")
+                        continue
             
             logger.info(f"Extracted {len(items)} text items")
             return items

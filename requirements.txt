@@ -1,24 +1,25 @@
 # Web Framework
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-python-dotenv==1.0.0
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-dotenv>=1.0.0
 
 # Screenshot & Image Processing
-mss==9.0.1
-Pillow==10.1.0
+mss>=9.0.0
+Pillow>=10.0.0
 
-# OCR
-paddleocr==2.7.3
-opencv-python==4.8.1.78
+# OCR - Install with specific order
+opencv-python-headless>=4.8.0
+paddlepaddle>=2.5.0
+paddleocr>=2.7.0
 
 # VLM (lazy-loaded, optional for CPU-only setups)
-# torch==2.1.0  # Uncomment if you have GPU
-# transformers==4.35.0  # Uncomment for VLM support
-# accelerate==0.24.1  # Uncomment for VLM support
+# torch>=2.1.0  # Uncomment if you have GPU
+# transformers>=4.35.0  # Uncomment for VLM support
+# accelerate>=0.24.0  # Uncomment for VLM support
 
 # HTTP Client
-httpx==0.25.1
+httpx>=0.25.0
 
 # Utilities
-numpy==1.24.3
-psutil==5.9.6
+numpy>=1.24.0,<2.0.0
+psutil>=5.9.0
