@@ -35,6 +35,30 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Global vision engine instance
+vision_engine = None
+
+@app.on_event("startup")
+async def startup_event():
+    """Preload models on startup if privacy mode is enabled"""
+    global vision_engine
+    from src.services.vision_engine import VisionEngine
+    
+    vision_engine = VisionEngine()
+    
+    # Preload Qwen model if enabled
+    if os.getenv('QWEN_ENABLED', 'false').lower() == 'true':
+        logger.info("🔄 Preloading Qwen2-VL model on startup...")
+        try:
+            # Create a dummy 1x1 image to trigger model loading
+            from PIL import Image
+            dummy_img = Image.new('RGB', (1, 1))
+            await vision_engine.process(dummy_img, mode='privacy', task='describe')
+            logger.info("✅ Qwen2-VL model preloaded successfully")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to preload Qwen model: {e}")
+            logger.warning("Model will be loaded on first request")
+
 # CORS middleware
 allowed_origins = os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
 app.add_middleware(
@@ -76,38 +100,44 @@ async def service_capabilities():
         "version": "1.0.0",
         "endpoints": [
             {
-                "path": "/vision/capture",
+                "path": "/capture",
                 "method": "POST",
                 "description": "Capture screenshot",
-                "params": ["region", "format"]
+                "params": ["region", "format"],
+                "mcp_action": "capture"
             },
             {
-                "path": "/vision/ocr",
+                "path": "/ocr",
                 "method": "POST",
                 "description": "Extract text from screen",
-                "params": ["region", "language"]
+                "params": ["region", "language"],
+                "mcp_action": "ocr"
             },
             {
-                "path": "/vision/describe",
+                "path": "/describe",
                 "method": "POST",
                 "description": "Describe screen content using VLM",
-                "params": ["region", "task", "store_to_memory"]
+                "params": ["region", "task", "store_to_memory"],
+                "mcp_action": "describe"
             },
             {
-                "path": "/vision/watch/start",
+                "path": "/watch.start",
                 "method": "POST",
                 "description": "Start continuous screen monitoring",
-                "params": ["interval_ms", "change_threshold", "run_ocr", "run_vlm"]
+                "params": ["interval_ms", "change_threshold", "run_ocr", "run_vlm"],
+                "mcp_action": "watch.start"
             },
             {
-                "path": "/vision/watch/stop",
+                "path": "/watch.stop",
                 "method": "POST",
-                "description": "Stop screen monitoring"
+                "description": "Stop screen monitoring",
+                "mcp_action": "watch.stop"
             },
             {
-                "path": "/vision/watch/status",
+                "path": "/watch.status",
                 "method": "GET",
-                "description": "Get watch status"
+                "description": "Get watch status",
+                "mcp_action": "watch.status"
             }
         ],
         "dependencies": {

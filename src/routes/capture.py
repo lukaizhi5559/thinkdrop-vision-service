@@ -11,7 +11,7 @@ from ..services.screenshot import ScreenshotService
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/vision", tags=["capture"])
+router = APIRouter(tags=["capture"])
 
 class CaptureRequest(BaseModel):
     """Capture request model"""
@@ -24,7 +24,7 @@ class CaptureResponse(BaseModel):
     status: str = "success"
     data: dict
 
-@router.post("/capture", response_model=CaptureResponse)
+@router.post("/capture", response_model=CaptureResponse)  # MCP action: capture
 async def capture_screenshot(request: CaptureRequest):
     """
     Capture screenshot

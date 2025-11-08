@@ -63,27 +63,14 @@ pip install --quiet fastapi uvicorn python-dotenv httpx psutil
 echo "  • Installing image processing..."
 pip install --quiet "numpy>=1.24.0,<2.0.0" Pillow mss
 
-echo "  • Installing OpenCV (headless)..."
-pip install --quiet opencv-python-headless
-
-echo "  • Installing PaddlePaddle..."
-pip install --quiet paddlepaddle
-
-echo "  • Installing PaddleOCR..."
-pip install --quiet paddleocr
+echo "  • Installing Google Vision API..."
+pip install --quiet google-cloud-vision
 
 echo -e "${GREEN}✅ Dependencies installed${NC}"
 echo ""
 
-# Download OCR models (first time only)
-echo "Checking OCR models..."
-python3 -c "from paddleocr import PaddleOCR; PaddleOCR(use_textline_orientation=True, lang='en')" 2>/dev/null && {
-    echo -e "${GREEN}✅ OCR models ready${NC}"
-} || {
-    echo -e "${YELLOW}Downloading OCR models (~100MB, first time only)...${NC}"
-    python3 -c "from paddleocr import PaddleOCR; PaddleOCR(use_textline_orientation=True, lang='en')"
-    echo -e "${GREEN}✅ OCR models downloaded${NC}"
-}
+# Note about Google Vision API key
+echo -e "${YELLOW}📝 Note: Add your GOOGLE_VISION_API_KEY to .env for online mode${NC}"
 echo ""
 
 # Check .env file

@@ -11,7 +11,7 @@ from ..services.watch_manager import WatchManager, WatchConfig
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/vision/watch", tags=["watch"])
+router = APIRouter(tags=["watch"])
 
 class WatchStartRequest(BaseModel):
     """Watch start request model"""
@@ -28,7 +28,7 @@ class WatchResponse(BaseModel):
     status: str = "success"
     data: dict
 
-@router.post("/start", response_model=WatchResponse)
+@router.post("/watch.start", response_model=WatchResponse)  # MCP action: watch.start
 async def start_watch(request: WatchStartRequest):
     """
     Start continuous screen monitoring
@@ -76,7 +76,7 @@ async def start_watch(request: WatchStartRequest):
             }
         )
 
-@router.post("/stop", response_model=WatchResponse)
+@router.post("/watch.stop", response_model=WatchResponse)  # MCP action: watch.stop
 async def stop_watch():
     """
     Stop screen monitoring
@@ -110,7 +110,7 @@ async def stop_watch():
             }
         )
 
-@router.get("/status", response_model=WatchResponse)
+@router.get("/watch.status", response_model=WatchResponse)  # MCP action: watch.status
 async def get_watch_status():
     """
     Get current watch status

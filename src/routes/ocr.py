@@ -8,16 +8,18 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 from ..services.screenshot import ScreenshotService
-from ..services.ocr_engine import OCREngine
+from ..services.vision_engine import VisionEngine
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/vision", tags=["ocr"])
+router = APIRouter(tags=["ocr"])
 
 class OCRRequest(BaseModel):
     """OCR request model"""
     region: Optional[List[int]] = None  # [x, y, width, height]
     language: Optional[str] = None
+    mode: Optional[str] = None  # 'online' or 'privacy' (overrides default)
+    api_key: Optional[str] = None  # Google Vision API key (from database or OAuth)
 
 class OCRResponse(BaseModel):
     """OCR response model"""
@@ -25,7 +27,7 @@ class OCRResponse(BaseModel):
     status: str = "success"
     data: dict
 
-@router.post("/ocr", response_model=OCRResponse)
+@router.post("/ocr", response_model=OCRResponse)  # MCP action: ocr
 async def extract_text(request: OCRRequest):
     """
     Extract text from screen using OCR
@@ -37,27 +39,40 @@ async def extract_text(request: OCRRequest):
         Extracted text items with bounding boxes and confidence scores
     """
     try:
-        logger.info(f"Running OCR (region={request.region}, lang={request.language})")
+        logger.info(f"Running OCR (region={request.region}, mode={request.mode})")
         
-        # Capture
+        # Capture screenshot
         region = tuple(request.region) if request.region else None
         img = ScreenshotService.capture(region)
         
-        # OCR
-        ocr_engine = OCREngine.get_instance()
-        items = ocr_engine.extract_text(img, request.language)
+        # Process with vision engine (extract_text task)
+        vision_engine = VisionEngine()
         
-        # Concatenate text
-        concat_text = " ".join(item["text"] for item in items)
+        # Build options with API key if provided
+        process_options = {}
+        if request.api_key:
+            process_options['api_key'] = request.api_key
+        
+        vision_result = await vision_engine.process(
+            img=img,
+            mode=request.mode,
+            task='extract_text',
+            options=process_options
+        )
+        
+        # Extract text from result
+        text = vision_result.get('text', '')
         
         return OCRResponse(
             version="mcp.v1",
             status="success",
             data={
-                "items": items,
-                "concat": concat_text,
-                "count": len(items),
-                "region": request.region
+                "text": text,
+                "concat": text,
+                "region": request.region,
+                "mode": vision_result.get('mode'),
+                "latency_ms": vision_result.get('latency_ms'),
+                "cached": vision_result.get('cached', False)
             }
         )
         

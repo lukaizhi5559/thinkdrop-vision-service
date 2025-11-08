@@ -6,16 +6,22 @@ python-dotenv>=1.0.0
 # Screenshot & Image Processing
 mss>=9.0.0
 Pillow>=10.0.0
+opencv-python>=4.8.0
 
-# OCR - Install with specific order
-opencv-python-headless>=4.8.0
-paddlepaddle>=2.5.0
+# OCR (Privacy Mode)
 paddleocr>=2.7.0
+paddlepaddle>=2.5.0
 
-# VLM (lazy-loaded, optional for CPU-only setups)
-# torch>=2.1.0  # Uncomment if you have GPU
-# transformers>=4.35.0  # Uncomment for VLM support
-# accelerate>=0.24.0  # Uncomment for VLM support
+# Google Vision API (Online Mode)
+google-cloud-vision>=3.4.0
+
+# Local VLM (Privacy Mode - Optional)
+# Uncomment these for privacy mode with local Qwen2-VL
+torch>=2.1.0
+torchvision>=0.16.0  # Required by Qwen2-VL processor
+transformers>=4.35.0
+accelerate>=0.24.0
+# bitsandbytes>=0.41.0  # For 4-bit quantization (CUDA only, not needed for CPU)
 
 # HTTP Client
 httpx>=0.25.0

@@ -10,17 +10,18 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 from ..services.screenshot import ScreenshotService
-from ..services.ocr_engine import OCREngine
-from ..services.vlm_engine import VLMEngine
+from ..services.vision_engine import VisionEngine
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/vision", tags=["describe"])
+router = APIRouter(tags=["describe"])
 
 class DescribeRequest(BaseModel):
     """Describe request model"""
     region: Optional[List[int]] = None  # [x, y, width, height]
     task: Optional[str] = None  # Optional focus/task instruction
+    mode: Optional[str] = None  # 'online' or 'privacy' (overrides default)
+    api_key: Optional[str] = None  # Google Vision API key (from database or OAuth)
     include_ocr: bool = True  # Include OCR text
     store_to_memory: bool = True  # Store result to user-memory service
 
@@ -30,83 +31,68 @@ class DescribeResponse(BaseModel):
     status: str = "success"
     data: dict
 
-@router.post("/describe", response_model=DescribeResponse)
+@router.post("/describe", response_model=DescribeResponse)  # MCP action: describe
 async def describe_screen(request: DescribeRequest):
     """
-    Describe screen content using VLM
+    Describe screen content using vision engine (online or privacy mode)
     
     Args:
-        request: Description configuration
+        request: Description configuration with optional mode parameter
         
     Returns:
-        Natural language description + optional OCR text
+        Natural language description + text extraction
     """
     try:
-        logger.info(f"Describing screen (region={request.region}, task={request.task})")
+        logger.info(f"Describing screen (region={request.region}, mode={request.mode}, task={request.task})")
         
-        # Capture
+        # Capture screenshot
         region = tuple(request.region) if request.region else None
         img = ScreenshotService.capture(region)
         
-        # Save temp file for processing
-        temp_file = ScreenshotService.save_temp(img)
+        # Process with vision engine
+        vision_engine = VisionEngine()
         
-        try:
-            result = {
-                "width": img.width,
-                "height": img.height,
-                "region": request.region
-            }
-            
-            # OCR
-            if request.include_ocr:
-                try:
-                    ocr_engine = OCREngine.get_instance()
-                    items = ocr_engine.extract_text(img)
-                    ocr_text = " ".join(item["text"] for item in items)
-                    result["ocr"] = {
-                        "items": items,
-                        "concat": ocr_text
-                    }
-                except Exception as e:
-                    logger.warning(f"OCR failed: {e}")
-                    result["ocr_error"] = str(e)
-            
-            # VLM description
+        # Build options with API key if provided
+        process_options = {}
+        if request.task:
+            process_options['prompt'] = request.task
+        if request.api_key:
+            process_options['api_key'] = request.api_key
+        
+        vision_result = await vision_engine.process(
+            img=img,
+            mode=request.mode,
+            task='describe',
+            options=process_options
+        )
+        
+        result = {
+            "width": img.width,
+            "height": img.height,
+            "region": request.region,
+            "text": vision_result.get('text', ''),
+            "description": vision_result.get('description', ''),
+            "labels": vision_result.get('labels', []),
+            "objects": vision_result.get('objects', []),
+            "mode": vision_result.get('mode'),
+            "latency_ms": vision_result.get('latency_ms'),
+            "cached": vision_result.get('cached', False)
+        }
+        
+        # Store to user-memory service if requested
+        if request.store_to_memory and result.get("description"):
             try:
-                vlm_engine = VLMEngine.get_instance()
-                if vlm_engine.is_enabled():
-                    description = vlm_engine.describe(img, request.task)
-                    result["description"] = description
-                else:
-                    result["description"] = None
-                    result["vlm_disabled"] = True
-                    logger.info("VLM disabled, using OCR only")
+                await store_to_user_memory(result)
+                result["stored_to_memory"] = True
             except Exception as e:
-                logger.error(f"VLM failed: {e}")
-                result["vlm_error"] = str(e)
-                # Fallback to OCR-only description
-                if "ocr" in result:
-                    result["description"] = f"Screen content (OCR): {result['ocr']['concat'][:500]}"
-            
-            # Store to user-memory service
-            if request.store_to_memory and "description" in result:
-                try:
-                    await store_to_user_memory(result)
-                    result["stored_to_memory"] = True
-                except Exception as e:
-                    logger.warning(f"Failed to store to memory: {e}")
-                    result["memory_storage_error"] = str(e)
-            
-            return DescribeResponse(
-                version="mcp.v1",
-                status="success",
-                data=result
-            )
-            
-        finally:
-            # Cleanup temp file
-            ScreenshotService.cleanup_temp(temp_file)
+                logger.warning(f"Failed to store to memory: {e}")
+                result["memory_storage_error"] = str(e)
+        
+        return DescribeResponse(
+            version="mcp.v1",
+            status="success",
+            data=result
+        )
         
     except Exception as e:
         logger.error(f"Describe failed: {e}")
