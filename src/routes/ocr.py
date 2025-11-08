@@ -8,9 +8,16 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 from ..services.screenshot import ScreenshotService
-from ..services.vision_engine import VisionEngine
 
 logger = logging.getLogger(__name__)
+
+# Import global vision_engine from server
+def get_vision_engine():
+    """Get the global vision engine instance from server"""
+    from server import vision_engine
+    if vision_engine is None:
+        raise RuntimeError("VisionEngine not initialized")
+    return vision_engine
 
 router = APIRouter(tags=["ocr"])
 
@@ -45,8 +52,8 @@ async def extract_text(request: OCRRequest):
         region = tuple(request.region) if request.region else None
         img = ScreenshotService.capture(region)
         
-        # Process with vision engine (extract_text task)
-        vision_engine = VisionEngine()
+        # Get global vision engine instance (already preloaded)
+        vision_engine = get_vision_engine()
         
         # Build options with API key if provided
         process_options = {}

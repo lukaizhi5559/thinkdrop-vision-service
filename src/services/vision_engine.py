@@ -31,6 +31,21 @@ class VisionEngine:
         
         logger.info(f"VisionEngine initialized (default mode: {self.default_mode})")
     
+    def preload_qwen_model(self):
+        """
+        Preload Qwen2-VL model during startup
+        This is a synchronous method that loads the model weights
+        """
+        if os.getenv('QWEN_ENABLED', 'false').lower() == 'true':
+            if not self.qwen_model:
+                logger.info("Preloading Qwen2-VL model...")
+                self._load_qwen_model()
+                logger.info("Qwen2-VL model preloaded successfully")
+            else:
+                logger.info("Qwen2-VL model already loaded")
+        else:
+            logger.info("Qwen model preloading skipped (QWEN_ENABLED=false)")
+    
     async def process(
         self,
         img: Image.Image,
@@ -43,7 +58,7 @@ class VisionEngine:
         
         Args:
             img: PIL Image
-            mode: 'online' or 'privacy' (defaults to VISION_MODE env var)
+            mode: IGNORED - always uses VISION_MODE from .env
             task: 'describe', 'extract_text', or 'analyze'
             options: Additional processing options
             
@@ -59,7 +74,9 @@ class VisionEngine:
         """
         start_time = time.time()
         options = options or {}
-        mode = mode or self.default_mode
+        # ALWAYS use .env setting, ignore mode parameter
+        mode = self.default_mode
+        logger.info(f"Processing with mode: {mode} (from VISION_MODE env var)")
         
         # Generate fingerprint for caching
         fingerprint = self._generate_fingerprint(img)
@@ -103,8 +120,9 @@ class VisionEngine:
             # Get API key from options (passed from request)
             api_key = options.get('api_key')
             
-            # Lazy load Google Vision client with API key
-            if not self.google_client:
+            # Reload Google Vision client if API key is provided (from OAuth/database)
+            # or lazy load if not yet initialized
+            if api_key or not self.google_client:
                 self._load_google_client(api_key)
             
             # Convert image to bytes
@@ -154,8 +172,12 @@ class VisionEngine:
         Lazy load Google Vision API client
         
         Args:
-            api_key: Optional API key (from request or database)
+            api_key: Optional API key (from request or user_settings database)
                     Falls back to GOOGLE_VISION_API_KEY env var
+        
+        Note: The api_key parameter should contain the Google Cloud API key
+              from the user_settings table (setting_key='google_cloud_api_key').
+              This is NOT the same as Gemini OAuth tokens.
         """
         try:
             from google.cloud import vision
@@ -165,8 +187,9 @@ class VisionEngine:
             
             if not key:
                 raise ValueError(
-                    "GOOGLE_VISION_API_KEY not provided. "
-                    "Pass api_key in request or set GOOGLE_VISION_API_KEY in .env"
+                    "Google Cloud API key not provided. "
+                    "Please set up a Google Cloud API key and store it in user_settings. "
+                    "See GOOGLE_CLOUD_SETUP.md for instructions."
                 )
             
             # Initialize client with API key
@@ -174,7 +197,7 @@ class VisionEngine:
                 client_options={"api_key": key}
             )
             
-            logger.info("Google Vision API client loaded")
+            logger.info("Google Vision API client loaded with API key")
             
         except Exception as e:
             logger.error(f"Failed to load Google Vision client: {e}")
@@ -279,6 +302,15 @@ class VisionEngine:
                 result['objects'],
                 result['text']
             )
+        
+        # Log the actual vision data returned by Google
+        logger.info("=" * 80)
+        logger.info("📊 GOOGLE VISION API RESPONSE:")
+        logger.info(f"  Description: {result['description'][:300] if result['description'] else 'None'}")
+        logger.info(f"  OCR Text: {result['text'][:300] if result['text'] else 'None'}")
+        logger.info(f"  Labels ({len(result['labels'])}): {result['labels']}")
+        logger.info(f"  Objects ({len(result['objects'])}): {result['objects']}")
+        logger.info("=" * 80)
         
         return result
     

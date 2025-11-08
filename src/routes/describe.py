@@ -4,15 +4,23 @@ VLM scene description endpoint
 
 import os
 import logging
+import time
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 
 from ..services.screenshot import ScreenshotService
-from ..services.vision_engine import VisionEngine
 
 logger = logging.getLogger(__name__)
+
+# Import global vision_engine from server
+def get_vision_engine():
+    """Get the global vision engine instance from server"""
+    from server import vision_engine
+    if vision_engine is None:
+        raise RuntimeError("VisionEngine not initialized")
+    return vision_engine
 
 router = APIRouter(tags=["describe"])
 
@@ -32,25 +40,29 @@ class DescribeResponse(BaseModel):
     data: dict
 
 @router.post("/describe", response_model=DescribeResponse)  # MCP action: describe
-async def describe_screen(request: DescribeRequest):
+async def describe_screen(body: dict):
     """
     Describe screen content using vision engine (online or privacy mode)
     
     Args:
-        request: Description configuration with optional mode parameter
+        body: MCP request with payload containing description configuration
         
     Returns:
         Natural language description + text extraction
     """
     try:
+        # Extract payload from MCP request
+        payload = body.get('payload', {})
+        request = DescribeRequest(**payload)
+        
         logger.info(f"Describing screen (region={request.region}, mode={request.mode}, task={request.task})")
         
         # Capture screenshot
         region = tuple(request.region) if request.region else None
         img = ScreenshotService.capture(region)
         
-        # Process with vision engine
-        vision_engine = VisionEngine()
+        # Get global vision engine instance (already preloaded)
+        vision_engine = get_vision_engine()
         
         # Build options with API key if provided
         process_options = {}
@@ -115,40 +127,48 @@ async def store_to_user_memory(vision_data: dict):
     Args:
         vision_data: Vision processing result
     """
-    user_memory_url = os.getenv('USER_MEMORY_SERVICE_URL', 'http://localhost:3003')
+    user_memory_url = os.getenv('USER_MEMORY_SERVICE_URL', 'http://localhost:3001')
     api_key = os.getenv('USER_MEMORY_API_KEY', '')
     
     # Build content from description + OCR
-    content = vision_data.get('description', '')
+    text = vision_data.get('description', '')
     if 'ocr' in vision_data and vision_data['ocr'].get('concat'):
-        content += f"\n\nExtracted text: {vision_data['ocr']['concat']}"
+        text += f"\n\nExtracted text: {vision_data['ocr']['concat']}"
     
-    # Prepare payload
-    payload = {
-        "content": content,
-        "metadata": {
-            "type": "screen_capture",
-            "source": "vision-service",
-            "width": vision_data.get('width'),
-            "height": vision_data.get('height'),
-            "region": vision_data.get('region'),
-            "has_ocr": 'ocr' in vision_data,
-            "has_description": 'description' in vision_data
+    # Prepare MCP request payload
+    mcp_request = {
+        "version": "mcp.v1",
+        "service": "user-memory",
+        "action": "memory.store",
+        "requestId": f"vision_{int(time.time() * 1000)}",
+        "payload": {
+            "text": text,
+            "tags": ["screen_capture", "vision_service"],
+            "metadata": {
+                "type": "screen_capture",
+                "source": "vision-service",
+                "width": vision_data.get('width'),
+                "height": vision_data.get('height'),
+                "region": vision_data.get('region'),
+                "has_ocr": 'ocr' in vision_data,
+                "has_description": 'description' in vision_data
+            }
         }
     }
     
-    # POST to user-memory service
+    # POST to user-memory service with MCP format
     async with httpx.AsyncClient(timeout=10.0) as client:
-        headers = {}
+        headers = {
+            "Content-Type": "application/json"
+        }
         if api_key:
-            headers['x-api-key'] = api_key
+            headers['Authorization'] = f'Bearer {api_key}'
         
         response = await client.post(
-            f"{user_memory_url}/memory/store",
-            json=payload,
+            f"{user_memory_url}/memory.store",
+            json=mcp_request,
             headers=headers
         )
         response.raise_for_status()
-        
         logger.info("Stored vision result to user-memory service")
         return response.json()

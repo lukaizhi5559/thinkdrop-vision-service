@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Vision MCP Service
 Provides screen capture, OCR, and VLM capabilities for ThinkDrop AI
@@ -6,6 +7,7 @@ Provides screen capture, OCR, and VLM capabilities for ThinkDrop AI
 import os
 import logging
 from pathlib import Path
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -28,36 +30,50 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI app
-app = FastAPI(
-    title="Vision Service",
-    description="MCP service for screen capture, OCR, and visual understanding",
-    version="1.0.0"
-)
-
 # Global vision engine instance
 vision_engine = None
 
-@app.on_event("startup")
-async def startup_event():
-    """Preload models on startup if privacy mode is enabled"""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup/shutdown events"""
     global vision_engine
     from src.services.vision_engine import VisionEngine
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
     
+    # Startup
+    logger.info("Initializing VisionEngine...")
     vision_engine = VisionEngine()
+    logger.info("VisionEngine initialized")
     
-    # Preload Qwen model if enabled
+    # Preload Qwen model in background thread (non-blocking)
     if os.getenv('QWEN_ENABLED', 'false').lower() == 'true':
-        logger.info("🔄 Preloading Qwen2-VL model on startup...")
-        try:
-            # Create a dummy 1x1 image to trigger model loading
-            from PIL import Image
-            dummy_img = Image.new('RGB', (1, 1))
-            await vision_engine.process(dummy_img, mode='privacy', task='describe')
-            logger.info("✅ Qwen2-VL model preloaded successfully")
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to preload Qwen model: {e}")
-            logger.warning("Model will be loaded on first request")
+        executor = ThreadPoolExecutor(max_workers=1)
+        loop = asyncio.get_event_loop()
+        
+        def preload_in_thread():
+            """Run model preloading in separate thread"""
+            try:
+                vision_engine.preload_qwen_model()
+            except Exception as e:
+                logger.error(f"Failed to preload Qwen model: {e}")
+        
+        # Start preloading in background (don't await)
+        loop.run_in_executor(executor, preload_in_thread)
+        logger.info("Qwen model preloading started in background thread")
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down VisionEngine...")
+
+# Initialize FastAPI app with lifespan
+app = FastAPI(
+    title="Vision Service",
+    description="MCP service for screen capture, OCR, and visual understanding",
+    version="1.0.0",
+    lifespan=lifespan
+)
 
 # CORS middleware
 allowed_origins = os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
@@ -141,7 +157,7 @@ async def service_capabilities():
             }
         ],
         "dependencies": {
-            "user-memory": "http://localhost:3003"
+            "user-memory": "http://localhost:3001"
         }
     }
 
